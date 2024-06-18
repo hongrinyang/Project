@@ -1,6 +1,6 @@
 import numpy as np
 
-# 투수의 피칭존별 피안타율 및 피장타율 데이터
+# 투수의 피칭존별 피안타율 및 피홈런률 데이터
 pitches_paa = np.array([
     [0.190, 0.205, 0.240, 0.225, 0.190],
     [0.275, 0.300, 0.295, 0.290, 0.225],
@@ -10,11 +10,11 @@ pitches_paa = np.array([
 ])
 
 pitches_iso = np.array([
-    [0.220, 0.295, 0.295, 0.235, 0.240],
-    [0.285, 0.330, 0.325, 0.320, 0.245],
-    [0.290, 0.345, 0.380, 0.345, 0.250],
-    [0.285, 0.310, 0.315, 0.310, 0.225],
-    [0.200, 0.235, 0.270, 0.275, 0.140]
+    [0.005, 0.015, 0.025, 0.005, 0.000],
+    [0.015, 0.020, 0.055, 0.030, 0.005],
+    [0.005, 0.045, 0.080, 0.035, 0.020],
+    [0.015, 0.025, 0.035, 0.025, 0.025],
+    [0.010, 0.035, 0.030, 0.055, 0.000]
 ])
 
 # 타자의 피칭존별 안타 확률
@@ -35,7 +35,10 @@ home_run_prob = np.array([
     [0.010, 0.005, 0.000, 0.000, 0.000]
 ])
 
-def simulate_game(pitches_paa, pitches_iso, hitting_prob, home_run_prob, num_simulations=50):
+# 존 밖으로 볼을 던질 확률
+outside_zone_prob = 0.36
+
+def simulate_game(pitches_paa, pitches_iso, hitting_prob, home_run_prob, outside_zone_prob, num_simulations=50):
     total_hits = 0
     total_home_runs = 0
     total_outs = 0
@@ -49,6 +52,9 @@ def simulate_game(pitches_paa, pitches_iso, hitting_prob, home_run_prob, num_sim
         walks = 0
         hits = 0
         home_runs = 0
+        strikes_in_zone = 0
+        balls_outside_zone = 0
+        non_strikeout_outs = 0
         
         while pitch_count < 100:
             # 무작위로 투구존 선택
@@ -60,49 +66,69 @@ def simulate_game(pitches_paa, pitches_iso, hitting_prob, home_run_prob, num_sim
             iso = pitches_iso[zone_row, zone_col]
             
             # 안타 발생 여부 결정
-            hit = np.random.random() < hitting_prob[zone_row, zone_col]
+            hit = np.random.random() < (hitting_prob[zone_row, zone_col] * (1 - pitches_paa[zone_row, zone_col]))
             if hit:
                 hits += 1
                 # 홈런 발생 여부 결정
-                home_run = np.random.random() < home_run_prob[zone_row, zone_col]
-                if home_run:
+                if np.random.random() < home_run_prob[zone_row, zone_col] * (1 - pitches_iso[zone_row, zone_col]):
                     home_runs += 1
+                # 볼카운트 초기화
+                strikes_in_zone = 0
+                balls_outside_zone = 0
+                pitch_count += 1
+                continue
             
-            else:
-                # 타자의 삼진, 사사구, 아웃 결정
-                strikeout = np.random.random() < (1 - paa - iso)
-                if strikeout:
+            # 삼진, 볼넷, 아웃 결정
+            if strikes_in_zone < 3:  # 삼진이 되기 위해서는 존 안에 스트라이크 3개가 필요합니다. 
+                strikes_in_zone += 1
+                if strikes_in_zone == 3:
                     strikeouts += 1
+                    # 볼카운트 초기화
+                    strikes_in_zone = 0
+                    balls_outside_zone = 0
+                    pitch_count += 1
+                    continue
+            else:
+                if balls_outside_zone == 4:  # 볼넷이 되기 위해서는 존 밖으로 4번의 볼이 필요합니다.
+                    walks += 1
+                    # 볼카운트 초기화
+                    strikes_in_zone = 0
+                    balls_outside_zone = 0
+                    pitch_count += 1
+                    continue
                 else:
-                    # 볼넷 결정
-                    walk = np.random.random() < (paa * (1 - iso) / (1 - paa - iso))
-                    if walk:
-                        walks += 1
+                    if np.random.random() < outside_zone_prob:
+                        balls_outside_zone += 1
                     else:
-                        outs += 1
-            
-            # 한 투구 완료
-            pitch_count += 1
+                        non_strikeout_outs += 1
+                        # 타자가 2스트라이크에서 헛스윙을 하는 경우 삼진 처리
+                        if strikes_in_zone == 2:
+                            strikeouts += 1
+                        # 볼카운트 초기화
+                        strikes_in_zone = 0
+                        balls_outside_zone = 0
+                        pitch_count += 1
+                        continue
             
             # 아웃 3회면 루프 종료
-            if outs == 3:
+            if non_strikeout_outs == 3:
                 break
         
         # 전체 통계 누적
         total_hits += hits
         total_home_runs += home_runs
-        total_outs += outs
+        total_outs += (strikeouts + non_strikeout_outs)
         total_strikeouts += strikeouts
         total_walks += walks
     
     return total_hits, total_home_runs, total_outs, total_strikeouts, total_walks
 
 # 시뮬레이션 실행
-total_hits, total_home_runs, total_outs, total_strikeouts, total_walks = simulate_game(pitches_paa, pitches_iso, hitting_prob, home_run_prob)
+total_hits, total_home_runs, total_outs, total_strikeouts, total_walks = simulate_game(pitches_paa, pitches_iso, hitting_prob, home_run_prob, outside_zone_prob)
 
 print(f"50번의 시뮬레이션 결과:")
 print(f"총 안타: {total_hits}")
 print(f"총 홈런: {total_home_runs}")
 print(f"총 아웃: {total_outs}")
 print(f"총 삼진: {total_strikeouts}")
-print(f"총 사사구: {total_walks}")
+print(f"총 볼넷: {total_walks}")
